@@ -13,3 +13,7 @@ categories = ["web-programming"]
 authors = ["MusCat / MusKitty Bit-Torch Community"]
 
 [dependencies]
+
+# 防止被父 workspace (D:\Muskitty\Cargo.toml) 误吸入。
+# dom 作为独立 git 仓库剥离，有自己的 workspace 根。
+[workspace]
