@@ -46,12 +46,29 @@ pub fn append_child(
 /// `Node.insertBefore(node, child)`。参见 DOM §4.2.6。
 ///
 /// 将 `node` 插入到 `reference` 之前；`reference` 为 `None` 时追加到末尾。
+///
+/// 若 `node` 是 DocumentFragment，按照 DOM §4.2.6 将其所有子节点移入
+/// `parent`（在 reference 之前），fragment 自身不插入。
 pub fn insert_before(
     parent: &Rc<RefCell<Node>>,
     node: Rc<RefCell<Node>>,
     reference: Option<&Rc<RefCell<Node>>>,
 ) -> Result<Rc<RefCell<Node>>, DomError> {
     ensure_pre_insert_validity(parent, &node, reference)?;
+
+    // DOM §4.2.6: 若 node 是 DocumentFragment，将其所有子节点移入 parent。
+    // fragment 自身变空，不成为 parent 的子节点。
+    // 分两步 borrow 避免 RefCell 双重借用 panic。
+    let is_fragment = node.borrow().node_type == NodeType::DocumentFragment;
+    if is_fragment {
+        let fragment_children: Vec<Rc<RefCell<Node>>> =
+            node.borrow_mut().children.drain(..).collect();
+        // RefMut 在 drain().collect() 后已释放；安全递归插入子节点。
+        for child in fragment_children {
+            insert_before(parent, child, reference)?;
+        }
+        return Ok(node);
+    }
 
     // 定位 reference 在 parent.children 中的索引
     let ref_idx = match reference {
@@ -227,4 +244,25 @@ fn ensure_document_child_validity(
     // reference 的位置校验（简化）：省略规范中关于 Element/DocumentType 顺序的复杂规则
     let _ = reference;
     Ok(())
+}
+
+/// 直接追加子节点，不经过 pre-insertion 校验。
+///
+/// 用于内部场景（如 cloneNode 递归），调用方负责确保不变式成立。
+/// 同时设置 `child.parent_node`。
+pub fn push_child_raw(parent: &Rc<RefCell<Node>>, child: Rc<RefCell<Node>>) {
+    child.borrow_mut().parent_node = Rc::downgrade(parent);
+    parent.borrow_mut().children.push(child);
+}
+
+/// 清空所有子节点并返回旧列表。调用方负责处理旧子节点的
+/// `parent_node` 引用。
+pub fn drain_children(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
+    node.borrow_mut().children.drain(..).collect()
+}
+
+/// 按谓词保留子节点。不匹配的子节点直接丢弃（其 `parent_node` 未更新）。
+/// 调用方应在调用前解绑不匹配节点的 `parent_node`。
+pub fn retain_children(node: &Rc<RefCell<Node>>, mut f: impl FnMut(&Rc<RefCell<Node>>) -> bool) {
+    node.borrow_mut().children.retain(|c| f(c));
 }

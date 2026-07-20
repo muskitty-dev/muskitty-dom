@@ -74,11 +74,17 @@ impl ElementData {
         }
     }
 
-    /// 查找指定 local_name 的属性值（大小写不敏感，HTML namespace）。
+    /// 查找指定 local_name 的属性值。
+    ///
+    /// HTML namespace 下大小写不敏感（DOM §6.1）；SVG/MathML namespace 下
+    /// 精确匹配。namespace 通过 `self.namespace` 自动判断。
     pub fn get_attribute(&self, name: &str) -> Option<&str> {
         self.attributes
             .iter()
-            .find(|a| a.local_name.eq_ignore_ascii_case(name))
+            .find(|a| match self.namespace {
+                Namespace::Html => a.local_name.eq_ignore_ascii_case(name),
+                _ => a.local_name == name,
+            })
             .map(|a| a.value.as_str())
     }
 

@@ -30,6 +30,19 @@ fn new_document_metadata() {
 }
 
 #[test]
+fn svg_attribute_case_sensitive() {
+    let doc = Node::new_document();
+    let attrs = vec![Attribute::new("viewBox", "0 0 100 100")];
+    let el = Node::new_element_ns("svg".into(), Namespace::Svg, None, attrs, &doc);
+    let e = el.borrow();
+    let elem = e.kind.as_element().unwrap();
+    // SVG: 大小写敏感 — "viewBox" 能找到
+    assert_eq!(elem.get_attribute("viewBox"), Some("0 0 100 100"));
+    // SVG: "viewbox" (小写 b) 找不到
+    assert_eq!(elem.get_attribute("viewbox"), None);
+}
+
+#[test]
 fn new_element_html_normalizes_tag_name() {
     let doc = Node::new_document();
     let el = Node::new_element_html("DIV", vec![], &doc);
@@ -146,7 +159,7 @@ fn append_multiple_children_preserves_order() {
     append_child(&frag, body.clone()).unwrap();
 
     assert_eq!(frag.borrow().child_count(), 3);
-    let children: Vec<Rc<_>> = frag.borrow().children.clone();
+    let children: Vec<Rc<_>> = frag.borrow().child_nodes().to_vec();
     assert!(Rc::ptr_eq(&children[0], &html));
     assert!(Rc::ptr_eq(&children[1], &head));
     assert!(Rc::ptr_eq(&children[2], &body));
@@ -188,7 +201,7 @@ fn insert_before_with_reference() {
     insert_before(&frag, b.clone(), Some(&c)).unwrap();
 
     assert_eq!(frag.borrow().child_count(), 3);
-    let children: Vec<Rc<_>> = frag.borrow().children.clone();
+    let children: Vec<Rc<_>> = frag.borrow().child_nodes().to_vec();
     assert!(Rc::ptr_eq(&children[0], &a));
     assert!(Rc::ptr_eq(&children[1], &b));
     assert!(Rc::ptr_eq(&children[2], &c));
@@ -204,7 +217,7 @@ fn insert_before_none_appends() {
     append_child(&frag, a.clone()).unwrap();
     insert_before(&frag, b.clone(), None).unwrap();
 
-    let children: Vec<Rc<_>> = frag.borrow().children.clone();
+    let children: Vec<Rc<_>> = frag.borrow().child_nodes().to_vec();
     assert!(Rc::ptr_eq(&children[0], &a));
     assert!(Rc::ptr_eq(&children[1], &b));
 }
@@ -589,4 +602,73 @@ fn document_accepts_comment() {
     let comment = Node::new_comment("a doc comment", &doc);
     append_child(&doc, comment).unwrap();
     assert_eq!(doc.borrow().child_count(), 1);
+}
+
+// —— DocumentFragment 插入（DOM §4.2.6） ——
+
+#[test]
+fn document_fragment_insert_moves_children_to_parent() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, parent.clone()).unwrap();
+
+    // 创建一个 fragment，往里面放两个 Text 子节点
+    let frag = Node::new_document_fragment(&doc);
+    let text_a = Node::new_text("hello", &doc);
+    let text_b = Node::new_text("world", &doc);
+    append_child(&frag, text_a).unwrap();
+    append_child(&frag, text_b).unwrap();
+
+    // appendChild(frag) → fragment 的子节点移入 parent
+    append_child(&parent, frag.clone()).unwrap();
+
+    // parent 现在应该有 2 个 Text 子节点（而非 fragment 本身）
+    assert_eq!(parent.borrow().child_count(), 2);
+    assert_eq!(
+        parent.borrow().first_child().unwrap().borrow().node_type,
+        NodeType::Text
+    );
+    assert_eq!(
+        parent.borrow().last_child().unwrap().borrow().node_type,
+        NodeType::Text
+    );
+
+    // fragment 自身变空
+    assert_eq!(frag.borrow().child_count(), 0);
+}
+
+#[test]
+fn document_fragment_insert_with_multiple_children_preserves_order() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, parent.clone()).unwrap();
+
+    let frag = Node::new_document_fragment(&doc);
+    let first = Node::new_element_html("span", vec![], &doc);
+    let last = Node::new_element_html("em", vec![], &doc);
+    append_child(&frag, first.clone()).unwrap();
+    append_child(&frag, last.clone()).unwrap();
+
+    append_child(&parent, frag.clone()).unwrap();
+
+    assert_eq!(parent.borrow().child_count(), 2);
+    assert!(Rc::ptr_eq(&parent.borrow().first_child().unwrap(), &first));
+    assert!(Rc::ptr_eq(&parent.borrow().last_child().unwrap(), &last));
+    assert_eq!(frag.borrow().child_count(), 0);
+}
+
+#[test]
+fn empty_document_fragment_insert_is_noop_for_children() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, parent.clone()).unwrap();
+
+    let frag = Node::new_document_fragment(&doc);
+    // 空 fragment — 没有任何子节点
+    let prev_count = parent.borrow().child_count();
+    append_child(&parent, frag.clone()).unwrap();
+
+    // 不应插入 fragment 自身，也不插入任何子节点（因为没有）
+    assert_eq!(parent.borrow().child_count(), prev_count);
+    assert_eq!(frag.borrow().child_count(), 0);
 }

@@ -117,6 +117,14 @@ impl NodeKind {
 /// DOM 节点，DOM 树的基本单元。
 ///
 /// 实现对应 DOM Living Standard §4.4 `Node` 接口的核心字段与方法。
+///
+/// `children` 字段是 `pub(crate)`：外部 crate 只能通过 `child_nodes()`
+/// 只读访问或 `tree` 模块的 mutation 函数（`append_child` / `insert_before` /
+/// `remove_child` / `replace_child` / `push_child_raw` / `drain_children` /
+/// `retain_children`）修改。这确保父子不变式（`parent_node` ↔ `children`）
+/// 不会在外部被破坏。
+///
+/// `kind` 保持 pub 以支持 `NodeKind::as_element()` 等类型判别操作。
 pub struct Node {
     /// `Node.nodeType`
     pub node_type: NodeType,
@@ -128,10 +136,11 @@ pub struct Node {
     pub owner_document: Weak<RefCell<Node>>,
     /// 父节点弱引用，无父则为空 `Weak`。
     pub parent_node: Weak<RefCell<Node>>,
-    /// 子节点列表（按文档顺序）。
-    pub children: Vec<Rc<RefCell<Node>>>,
     /// 具体类型数据。
     pub kind: NodeKind,
+    /// 子节点列表（按文档顺序）。`pub(crate)` 限制外部 crate 访问；
+    /// 内部 `tree` 模块的函数是唯一应直接修改 `children` 的地方。
+    pub(crate) children: Vec<Rc<RefCell<Node>>>,
 }
 
 impl std::fmt::Debug for Node {
@@ -373,6 +382,18 @@ impl Node {
         let children: Vec<Rc<RefCell<Node>>> =
             node.borrow().children.iter().rev().cloned().collect();
         Descendants { stack: children }
+    }
+
+    /// 返回子节点切片（只读）。外部代码应通过此方法而不是直接访问
+    /// `children` 字段来遍历子节点。
+    pub fn child_nodes(&self) -> &[Rc<RefCell<Node>>] {
+        &self.children
+    }
+
+    /// 返回节点所属的 Document（`node.ownerDocument`）。
+    /// Document 节点返回自身。
+    pub fn owner_document(&self) -> Option<Rc<RefCell<Node>>> {
+        self.owner_document.upgrade()
     }
 }
 

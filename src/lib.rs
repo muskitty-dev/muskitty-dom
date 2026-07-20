@@ -37,4 +37,7 @@ pub use error::DomError;
 pub use node::{Descendants, Node, NodeKind, NodeType};
 pub use processing_instruction::ProcessingInstructionData;
 pub use text::TextData;
-pub use tree::{append_child, insert_before, remove_child, replace_child, set_text_content};
+pub use tree::{
+    append_child, drain_children, insert_before, push_child_raw, remove_child, replace_child,
+    retain_children, set_text_content,
+};
