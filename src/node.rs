@@ -18,6 +18,9 @@ use crate::processing_instruction::ProcessingInstructionData;
 use crate::text::TextData;
 
 /// `Node.nodeType` 常量。参见 DOM Living Standard §4.4。
+///
+/// CDATASection (nodeType=4) 未实现——HTML 解析器不会产生 CDATA 节点，
+/// 只有在 XML 解析模式下才可能出现。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NodeType {
@@ -25,8 +28,6 @@ pub enum NodeType {
     Element = 1,
     /// `TEXT_NODE = 3`
     Text = 3,
-    /// `CDATA_SECTION_NODE = 4`
-    CdataSection = 4,
     /// `PROCESSING_INSTRUCTION_NODE = 7`
     ProcessingInstruction = 7,
     /// `COMMENT_NODE = 8`
@@ -378,10 +379,17 @@ impl Node {
     }
 
     /// 返回后代节点的深度优先迭代器（不含自身）。
+    ///
+    /// 初始化时分配一次栈。每次 `next()` 将子节点逐个推入栈
+    /// （无中间 Vec 分配），仅执行 `Rc::clone`（引用计数+1）。
     pub fn descendants(node: &Rc<RefCell<Node>>) -> Descendants {
-        let children: Vec<Rc<RefCell<Node>>> =
-            node.borrow().children.iter().rev().cloned().collect();
-        Descendants { stack: children }
+        let mut stack = Vec::new();
+        // 将直接子节点逆序入栈，保证正向文档顺序（弹栈 LIFO）
+        let child_count = node.borrow().children.len();
+        for i in (0..child_count).rev() {
+            stack.push(node.borrow().children[i].clone());
+        }
+        Descendants { stack }
     }
 
     /// 返回子节点切片（只读）。外部代码应通过此方法而不是直接访问
@@ -535,6 +543,9 @@ impl Node {
 }
 
 /// 后代节点深度优先迭代器。
+///
+/// 每次 `next()` 弹出栈顶节点并将其子节点逆序推入栈（无中间
+/// Vec 分配）。初始化时分配一次栈，后续仅执行 `Rc::clone`。
 pub struct Descendants {
     stack: Vec<Rc<RefCell<Node>>>,
 }
@@ -544,10 +555,11 @@ impl Iterator for Descendants {
 
     fn next(&mut self) -> Option<Self::Item> {
         let node = self.stack.pop()?;
-        // 子节点逆序入栈以保持文档顺序（深度优先）
-        let children: Vec<Rc<RefCell<Node>>> =
-            node.borrow().children.iter().rev().cloned().collect();
-        self.stack.extend(children);
+        let child_count = node.borrow().children.len();
+        // 子节点逆序入栈，保证正向文档顺序（弹栈 LIFO）
+        for i in (0..child_count).rev() {
+            self.stack.push(node.borrow().children[i].clone());
+        }
         Some(node)
     }
 }
