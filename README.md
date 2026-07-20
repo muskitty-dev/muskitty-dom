@@ -1,5 +1,7 @@
 # muskitty-dom
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 [![crates.io](https://img.shields.io/crates/v/muskitty-dom.svg)](https://crates.io/crates/muskitty-dom)
 [![Documentation](https://docs.rs/muskitty-dom/badge.svg)](https://docs.rs/muskitty-dom)
 [![License](https://img.shields.io/crates/l/muskitty-dom.svg)](https://github.com/muskitty-dev/muskitty-dom/blob/main/LICENSE)
