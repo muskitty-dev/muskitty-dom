@@ -672,3 +672,84 @@ fn empty_document_fragment_insert_is_noop_for_children() {
     assert_eq!(parent.borrow().child_count(), prev_count);
     assert_eq!(frag.borrow().child_count(), 0);
 }
+
+// —— Node 实例方法 ——
+
+#[test]
+fn contains_self() {
+    let doc = Node::new_document();
+    assert!(Node::contains(&doc, &doc));
+}
+
+#[test]
+fn contains_child() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+    assert!(Node::contains(&doc, &div));
+}
+
+#[test]
+fn contains_sibling_does_not_contain() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, parent.clone()).unwrap();
+    let a = Node::new_element_html("a", vec![], &doc);
+    let b = Node::new_element_html("b", vec![], &doc);
+    append_child(&parent, a.clone()).unwrap();
+    append_child(&parent, b.clone()).unwrap();
+    assert!(!Node::contains(&a, &b));
+}
+
+#[test]
+fn is_equal_node_same() {
+    let doc = Node::new_document();
+    let a = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, a.clone()).unwrap();
+    assert!(doc.borrow().is_equal_node(&doc.borrow()));
+}
+
+#[test]
+fn is_equal_node_different_types() {
+    let doc = Node::new_document();
+    let text = Node::new_text("x", &doc);
+    assert!(!doc.borrow().is_equal_node(&text.borrow()));
+}
+
+#[test]
+fn is_connected_document() {
+    let doc = Node::new_document();
+    assert!(doc.borrow().is_connected());
+}
+
+#[test]
+fn is_connected_fragment_not_connected() {
+    let doc = Node::new_document();
+    let frag = Node::new_document_fragment(&doc);
+    assert!(!frag.borrow().is_connected());
+}
+
+#[test]
+fn get_root_node_returns_document() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+    let root = div.borrow().get_root_node().unwrap();
+    assert!(Rc::ptr_eq(&root, &doc));
+}
+
+#[test]
+fn compare_document_position_same_node_returns_zero() {
+    let doc = Node::new_document();
+    assert_eq!(doc.borrow().compare_document_position(&doc.borrow()), 0);
+}
+
+#[test]
+fn compare_document_position_disconnected_returns_disconnected() {
+    let doc1 = Node::new_document();
+    let doc2 = Node::new_document();
+    assert_eq!(
+        doc1.borrow().compare_document_position(&doc2.borrow()),
+        1 // DOCUMENT_POSITION_DISCONNECTED
+    );
+}

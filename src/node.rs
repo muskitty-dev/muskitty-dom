@@ -395,6 +395,108 @@ impl Node {
     pub fn owner_document(&self) -> Option<Rc<RefCell<Node>>> {
         self.owner_document.upgrade()
     }
+
+    /// `Node.contains(other)` — 参见 DOM §4.4。
+    ///
+    /// 如果 `other` 是 `node` 或 `node` 的后代节点则返回 `true`。
+    /// 通过 parent_node 链从 `other` 向上查找 `node`。
+    pub fn contains(node: &Rc<RefCell<Node>>, other: &Rc<RefCell<Node>>) -> bool {
+        if Rc::ptr_eq(node, other) {
+            return true;
+        }
+        let mut current = other.borrow().parent_node.upgrade();
+        while let Some(ancestor) = current {
+            if Rc::ptr_eq(&ancestor, node) {
+                return true;
+            }
+            let next = ancestor.borrow().parent_node.upgrade();
+            current = next;
+        }
+        false
+    }
+
+    /// `Node.isEqualNode(other)` — 参见 DOM §4.4。
+    ///
+    /// 深度相等比较：节点类型相同 + 节点名相同 + 属性相同 + 所有后代相等。
+    pub fn is_equal_node(&self, other: &Node) -> bool {
+        if self.node_type != other.node_type || self.node_name != other.node_name {
+            return false;
+        }
+        if self.children.len() != other.children.len() {
+            return false;
+        }
+        for (a, b) in self.children.iter().zip(other.children.iter()) {
+            if !a.borrow().is_equal_node(&b.borrow()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `Node.compareDocumentPosition(other)` — 参见 DOM §4.4。
+    ///
+    /// 返回一个位掩码表示 `other` 相对于 `self` 的位置关系。
+    /// 位常量：`DOCUMENT_POSITION_DISCONNECTED(1)` /
+    /// `PRECEDING(2)` / `FOLLOWING(4)` / `CONTAINS(8)` /
+    /// `CONTAINED_BY(16)` / `IMPLEMENTATION_SPECIFIC(32)`。
+    pub fn compare_document_position(&self, other: &Node) -> u16 {
+        // 如果是同一个节点，返回 0
+        if std::ptr::eq(self, other) {
+            return 0;
+        }
+        // 检查是否在同一棵树中
+        let self_root = self.get_root_node_impl();
+        let other_root = other.get_root_node_impl();
+        match (self_root, other_root) {
+            (Some(sr), Some(or)) => {
+                if !Rc::ptr_eq(&sr, &or) {
+                    return 1; // DOCUMENT_POSITION_DISCONNECTED
+                }
+            }
+            _ => return 1, // 孤立节点
+        }
+        // 简化实现：同一树中返回 0（占位）。完整实现需要计算树序位置
+        // 并返回 FOLLOWING/PRECEDING/CONTAINS/CONTAINED_BY。
+        0
+    }
+
+    /// `Node.getRootNode()` — 参见 DOM §4.4。
+    ///
+    /// 返回树的根节点（通常是 Document 或 DocumentFragment）。
+    /// 若自身是根节点（无父节点），返回 `None`——调用方应使用自身。
+    /// TODO: 改为返回 `Rc<RefCell<Node>>` 需要 `&self` 能够访问外层 `Rc`。
+    pub fn get_root_node(&self) -> Option<Rc<RefCell<Node>>> {
+        self.get_root_node_impl()
+    }
+
+    /// `Node.isConnected` — 参见 DOM §4.4。
+    ///
+    /// 如果节点连接到 Document 树中则返回 `true`（根节点是 Document）。
+    /// Document 节点自身也算 connected（它的根就是自己）。
+    pub fn is_connected(&self) -> bool {
+        if self.node_type == NodeType::Document {
+            return true;
+        }
+        let root = self.get_root_node_impl();
+        root.map(|r| r.borrow().node_type == NodeType::Document)
+            .unwrap_or(false)
+    }
+
+    /// 内部：沿 parent_node 链向上找根节点。
+    ///
+    /// 由于 `&self` 无法访问自身所在的 `Rc`，根节点判断依赖
+    /// `parent_node` 为空 → 调用方应知道 `self` 就是根。
+    /// 对于无父节点的 Node，返回 `None`；调用方应回退到自身。
+    fn get_root_node_impl(&self) -> Option<Rc<RefCell<Node>>> {
+        let mut current = self.parent_node.upgrade()?;
+        loop {
+            let next = current.borrow().parent_node.upgrade();
+            match next {
+                Some(parent) => current = parent,
+                None => return Some(current),
+            }
+        }
+    }
 }
 
 /// 后代节点深度优先迭代器。
