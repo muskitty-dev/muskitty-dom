@@ -6,8 +6,8 @@
 use std::rc::Rc;
 
 use muskitty_dom::{
-    append_child, insert_before, remove_child, replace_child, set_text_content, Attribute,
-    DomError, Namespace, Node, NodeType,
+    append_child, clone_node, insert_before, normalize, remove_child, replace_child,
+    set_text_content, Attribute, DomError, Namespace, Node, NodeType,
 };
 
 // —— 构造函数 ——
@@ -751,5 +751,127 @@ fn compare_document_position_disconnected_returns_disconnected() {
     assert_eq!(
         doc1.borrow().compare_document_position(&doc2.borrow()),
         1 // DOCUMENT_POSITION_DISCONNECTED
+    );
+}
+
+// —— cloneNode ——
+
+#[test]
+fn clone_node_shallow_element() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![Attribute::new("class", "x")], &doc);
+    append_child(&doc, div.clone()).unwrap();
+
+    let cloned = clone_node(&div, false);
+    assert_eq!(cloned.borrow().node_type, NodeType::Element);
+    assert_eq!(cloned.borrow().node_name, "DIV");
+    assert_eq!(cloned.borrow().child_count(), 0); // shallow
+                                                  // parent_node should be none
+    assert!(cloned.borrow().parent_node().is_none());
+    // owner_document should match
+    assert!(Rc::ptr_eq(&cloned.borrow().owner_document().unwrap(), &doc));
+}
+
+#[test]
+fn clone_node_deep_element_with_children() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc);
+    let child = Node::new_element_html("span", vec![], &doc);
+    let text = Node::new_text("hello", &doc);
+    append_child(&doc, parent.clone()).unwrap();
+    append_child(&parent, child.clone()).unwrap();
+    append_child(&child, text.clone()).unwrap();
+
+    let cloned = clone_node(&parent, true);
+    assert_eq!(cloned.borrow().child_count(), 1);
+    let cloned_child = cloned.borrow().first_child().unwrap();
+    assert_eq!(cloned_child.borrow().node_name, "SPAN");
+    let cloned_text = cloned_child.borrow().first_child().unwrap();
+    assert_eq!(cloned_text.borrow().node_type, NodeType::Text);
+    // deep clone should not share Rc pointers with originals
+    assert!(!Rc::ptr_eq(&cloned, &parent));
+    assert!(!Rc::ptr_eq(&cloned.borrow().first_child().unwrap(), &child));
+}
+
+#[test]
+fn clone_node_text() {
+    let doc = Node::new_document();
+    let text = Node::new_text("hello", &doc);
+    let cloned = clone_node(&text, false);
+    assert_eq!(cloned.borrow().node_type, NodeType::Text);
+    assert_eq!(cloned.borrow().text_content(), Some("hello".into()));
+}
+
+// —— normalize ——
+
+#[test]
+fn normalize_merges_adjacent_text_nodes() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+
+    append_child(&div, Node::new_text("hel", &doc)).unwrap();
+    append_child(&div, Node::new_text("lo", &doc)).unwrap();
+
+    normalize(&div);
+    assert_eq!(div.borrow().child_count(), 1);
+    assert_eq!(
+        div.borrow().first_child().unwrap().borrow().text_content(),
+        Some("hello".into())
+    );
+}
+
+#[test]
+fn normalize_removes_empty_text_nodes() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+
+    append_child(&div, Node::new_text("", &doc)).unwrap();
+    append_child(&div, Node::new_text("keep", &doc)).unwrap();
+    append_child(&div, Node::new_text("", &doc)).unwrap();
+
+    normalize(&div);
+    assert_eq!(div.borrow().child_count(), 1);
+    assert_eq!(
+        div.borrow().first_child().unwrap().borrow().text_content(),
+        Some("keep".into())
+    );
+}
+
+#[test]
+fn normalize_no_adjacent_text_no_change() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+
+    append_child(&div, Node::new_element_html("span", vec![], &doc)).unwrap();
+    append_child(&div, Node::new_text("a", &doc)).unwrap();
+    append_child(&div, Node::new_element_html("em", vec![], &doc)).unwrap();
+
+    normalize(&div);
+    assert_eq!(div.borrow().child_count(), 3);
+}
+
+#[test]
+fn normalize_recursive_into_nested_elements() {
+    let doc = Node::new_document();
+    let outer = Node::new_element_html("div", vec![], &doc);
+    let inner = Node::new_element_html("p", vec![], &doc);
+    append_child(&doc, outer.clone()).unwrap();
+    append_child(&outer, inner.clone()).unwrap();
+    append_child(&inner, Node::new_text("a", &doc)).unwrap();
+    append_child(&inner, Node::new_text("b", &doc)).unwrap();
+
+    normalize(&outer);
+    assert_eq!(inner.borrow().child_count(), 1);
+    assert_eq!(
+        inner
+            .borrow()
+            .first_child()
+            .unwrap()
+            .borrow()
+            .text_content(),
+        Some("ab".into())
     );
 }

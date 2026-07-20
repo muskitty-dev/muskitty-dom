@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use crate::error::DomError;
-use crate::node::{Node, NodeType};
+use crate::node::{Node, NodeKind, NodeType};
 
 /// `Node.textContent` setter（DOM §4.4）。
 ///
@@ -265,4 +265,140 @@ pub fn drain_children(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
 /// 调用方应在调用前解绑不匹配节点的 `parent_node`。
 pub fn retain_children(node: &Rc<RefCell<Node>>, mut f: impl FnMut(&Rc<RefCell<Node>>) -> bool) {
     node.borrow_mut().children.retain(|c| f(c));
+}
+
+/// `Node.cloneNode(deep)` — 参见 DOM §4.4。
+///
+/// 返回节点的深拷贝或浅拷贝。`deep=false` 时只克隆节点自身（不含子节点）。
+/// `deep=true` 时递归克隆整个子树。克隆的节点 `parent_node` 为 `None`，
+/// `owner_document` 与原节点一致（Document 节点除外，其 `owner_document`
+/// 指向自身）。
+pub fn clone_node(node: &Rc<RefCell<Node>>, deep: bool) -> Rc<RefCell<Node>> {
+    let n = node.borrow();
+    // 解析 owner_document 引用，在 Ref 释放前取出
+    let owner = n.owner_document.upgrade().unwrap_or_else(|| node.clone());
+
+    let clone = match &n.kind {
+        NodeKind::Element(e) => {
+            let attrs = e.attributes.clone();
+            match e.namespace {
+                crate::attribute::Namespace::Html => {
+                    Node::new_element_html(&e.local_name, attrs, &owner)
+                }
+                _ => Node::new_element_ns(
+                    e.local_name.clone(),
+                    e.namespace,
+                    e.prefix.clone(),
+                    attrs,
+                    &owner,
+                ),
+            }
+        }
+        NodeKind::Text(t) => Node::new_text(&t.data, &owner),
+        NodeKind::Comment(c) => Node::new_comment(&c.data, &owner),
+        NodeKind::DocumentType(dt) => {
+            Node::new_document_type(&dt.name, &dt.public_id, &dt.system_id, &owner)
+        }
+        NodeKind::DocumentFragment(_) => Node::new_document_fragment(&owner),
+        NodeKind::Document(_) => {
+            // Document: owner_document 指向自身
+            let doc = Node::new_document();
+            // 拷贝 quirks mode / compat 等信息暂略
+            drop(n); // 释放旧的 borrow 以免后续 push_child_raw 死锁
+            if deep {
+                let child_nodes: Vec<_> = node.borrow().child_nodes().to_vec();
+                for child in &child_nodes {
+                    let child_clone = clone_node(child, true);
+                    // 更新子节点的 owner_document
+                    set_owner_document_recursive(&child_clone, &doc);
+                    push_child_raw(&doc, child_clone);
+                }
+            }
+            return doc;
+        }
+        NodeKind::ProcessingInstruction(pi) => {
+            Node::new_processing_instruction(&pi.target, &pi.data, &owner)
+        }
+    };
+    drop(n); // 释放旧的 borrow
+
+    if deep {
+        let child_nodes: Vec<_> = node.borrow().child_nodes().to_vec();
+        for child in &child_nodes {
+            let child_clone = clone_node(child, true);
+            push_child_raw(&clone, child_clone);
+        }
+    }
+
+    clone
+}
+
+/// 递归设置节点及其所有后代的 `owner_document`。
+fn set_owner_document_recursive(node: &Rc<RefCell<Node>>, doc: &Rc<RefCell<Node>>) {
+    node.borrow_mut().owner_document = Rc::downgrade(doc);
+    let children: Vec<_> = node.borrow().child_nodes().to_vec();
+    for child in &children {
+        set_owner_document_recursive(child, doc);
+    }
+}
+
+/// `Node.normalize()` — 参见 DOM §4.4。
+///
+/// 合并相邻 Text 节点并移除空 Text 节点。对所有后代递归执行。
+pub fn normalize(node: &Rc<RefCell<Node>>) {
+    // 1. 先递归 normalize 所有子节点（自底向上合并）
+    let child_nodes: Vec<_> = node.borrow().child_nodes().to_vec();
+    for child in &child_nodes {
+        normalize(child);
+    }
+
+    // 2. 在当前节点上合并相邻 Text 节点并移除空 Text
+    loop {
+        let mut changed = false;
+        let children: Vec<_> = node.borrow().child_nodes().to_vec();
+
+        for i in 0..children.len() {
+            let child = &children[i];
+            let is_text = child.borrow().node_type == NodeType::Text;
+
+            if is_text {
+                let text_empty = child
+                    .borrow()
+                    .kind
+                    .as_text()
+                    .map(|t| t.data.is_empty())
+                    .unwrap_or(false);
+                if text_empty {
+                    // 移除空 Text 节点
+                    let _ = remove_child(node, child);
+                    changed = true;
+                    break; // 重新扫描
+                }
+
+                // 检查下一个兄弟是否也是 Text
+                if i + 1 < children.len() {
+                    let next = &children[i + 1];
+                    if next.borrow().node_type == NodeType::Text {
+                        // 合并 next 的数据到 child
+                        let next_data = next
+                            .borrow()
+                            .kind
+                            .as_text()
+                            .map(|t| t.data.clone())
+                            .unwrap_or_default();
+                        if let NodeKind::Text(ref mut t) = child.borrow_mut().kind {
+                            t.data.push_str(&next_data);
+                        }
+                        let _ = remove_child(node, next);
+                        changed = true;
+                        break; // 重新扫描
+                    }
+                }
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
 }
