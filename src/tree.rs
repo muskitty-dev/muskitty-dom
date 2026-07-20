@@ -333,6 +333,15 @@ pub fn clone_node(node: &Rc<RefCell<Node>>, deep: bool) -> Rc<RefCell<Node>> {
     clone
 }
 
+/// `Document.adoptNode(node)` — 参见 DOM §4.4。
+///
+/// 递归更新节点及其所有后代的 `owner_document` 为新 document。
+/// 这通常在跨文档移动节点之前调用。已设置正确 owner_document 的节点
+/// 不受影响。
+pub fn adopt_node(node: &Rc<RefCell<Node>>, document: &Rc<RefCell<Node>>) {
+    set_owner_document_recursive(node, document);
+}
+
 /// 递归设置节点及其所有后代的 `owner_document`。
 fn set_owner_document_recursive(node: &Rc<RefCell<Node>>, doc: &Rc<RefCell<Node>>) {
     node.borrow_mut().owner_document = Rc::downgrade(doc);

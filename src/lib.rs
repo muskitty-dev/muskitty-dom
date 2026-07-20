@@ -38,6 +38,6 @@ pub use node::{Descendants, Node, NodeKind, NodeType};
 pub use processing_instruction::ProcessingInstructionData;
 pub use text::TextData;
 pub use tree::{
-    append_child, clone_node, drain_children, insert_before, normalize, push_child_raw,
+    adopt_node, append_child, clone_node, drain_children, insert_before, normalize, push_child_raw,
     remove_child, replace_child, retain_children, set_text_content,
 };

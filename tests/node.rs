@@ -6,7 +6,7 @@
 use std::rc::Rc;
 
 use muskitty_dom::{
-    append_child, clone_node, insert_before, normalize, remove_child, replace_child,
+    adopt_node, append_child, clone_node, insert_before, normalize, remove_child, replace_child,
     set_text_content, Attribute, DomError, Namespace, Node, NodeType,
 };
 
@@ -874,4 +874,125 @@ fn normalize_recursive_into_nested_elements() {
             .text_content(),
         Some("ab".into())
     );
+}
+
+// —— adoptNode / ParentNode / Element ——
+
+#[test]
+fn adopt_node_updates_owner_document() {
+    let doc1 = Node::new_document();
+    let doc2 = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc1);
+    append_child(&doc1, div.clone()).unwrap();
+
+    adopt_node(&div, &doc2);
+    assert!(Rc::ptr_eq(&div.borrow().owner_document().unwrap(), &doc2));
+}
+
+#[test]
+fn adopt_node_recursive_into_descendants() {
+    let doc1 = Node::new_document();
+    let doc2 = Node::new_document();
+    let parent = Node::new_element_html("div", vec![], &doc1);
+    let child = Node::new_text("x", &doc1);
+    append_child(&doc1, parent.clone()).unwrap();
+    append_child(&parent, child.clone()).unwrap();
+
+    adopt_node(&parent, &doc2);
+    assert!(Rc::ptr_eq(&child.borrow().owner_document().unwrap(), &doc2));
+}
+
+#[test]
+fn children_filters_elements_only() {
+    let doc = Node::new_document();
+    let frag = Node::new_document_fragment(&doc);
+    append_child(&frag, Node::new_text("ignored", &doc)).unwrap();
+    append_child(&frag, Node::new_element_html("div", vec![], &doc)).unwrap();
+    append_child(&frag, Node::new_comment("c", &doc)).unwrap();
+    append_child(&frag, Node::new_element_html("span", vec![], &doc)).unwrap();
+
+    let children = frag.borrow().children();
+    assert_eq!(children.len(), 2);
+}
+
+#[test]
+fn first_element_child_skips_text() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+    append_child(&div, Node::new_text("x", &doc)).unwrap();
+    let span = Node::new_element_html("span", vec![], &doc);
+    append_child(&div, span.clone()).unwrap();
+
+    let first = div.borrow().first_element_child().unwrap();
+    assert!(Rc::ptr_eq(&first, &span));
+}
+
+#[test]
+fn child_element_count_ignores_non_elements() {
+    let doc = Node::new_document();
+    let div = Node::new_element_html("div", vec![], &doc);
+    append_child(&doc, div.clone()).unwrap();
+    append_child(&div, Node::new_text("a", &doc)).unwrap();
+    append_child(&div, Node::new_element_html("p", vec![], &doc)).unwrap();
+
+    assert_eq!(div.borrow().child_element_count(), 1);
+}
+
+#[test]
+fn set_attribute_adds_new() {
+    let doc = Node::new_document();
+    let el = Node::new_element_html("div", vec![], &doc);
+    el.borrow_mut()
+        .kind
+        .as_element_mut()
+        .unwrap()
+        .set_attribute("id", "main");
+    let binding = el.borrow();
+    let elem = binding.kind.as_element().unwrap();
+    assert_eq!(elem.get_attribute("id"), Some("main"));
+}
+
+#[test]
+fn set_attribute_updates_existing() {
+    let doc = Node::new_document();
+    let el = Node::new_element_html("div", vec![Attribute::new("class", "old")], &doc);
+    el.borrow_mut()
+        .kind
+        .as_element_mut()
+        .unwrap()
+        .set_attribute("class", "new");
+    let binding = el.borrow();
+    let elem = binding.kind.as_element().unwrap();
+    assert_eq!(elem.get_attribute("class"), Some("new"));
+    assert_eq!(elem.attributes.len(), 1);
+}
+
+#[test]
+fn remove_attribute_removes_by_name() {
+    let doc = Node::new_document();
+    let el = Node::new_element_html(
+        "div",
+        vec![Attribute::new("id", "x"), Attribute::new("class", "y")],
+        &doc,
+    );
+    el.borrow_mut()
+        .kind
+        .as_element_mut()
+        .unwrap()
+        .remove_attribute("id");
+    let binding = el.borrow();
+    let elem = binding.kind.as_element().unwrap();
+    assert_eq!(elem.attributes.len(), 1);
+    assert_eq!(elem.get_attribute("id"), None);
+}
+
+#[test]
+fn has_attribute_returns_true_false() {
+    let doc = Node::new_document();
+    let el = Node::new_element_html("div", vec![Attribute::new("data-x", "1")], &doc);
+    let binding = el.borrow();
+    let elem = binding.kind.as_element().unwrap();
+    assert!(elem.has_attribute("data-x"));
+    assert!(!elem.has_attribute("data-y"));
 }

@@ -390,6 +390,41 @@ impl Node {
         &self.children
     }
 
+    /// ParentNode.children — 返回所有 Element 类型的子节点。
+    /// 参见 DOM §4.4 ParentNode mixin。
+    pub fn children(&self) -> Vec<Rc<RefCell<Node>>> {
+        self.children
+            .iter()
+            .filter(|c| c.borrow().node_type == NodeType::Element)
+            .cloned()
+            .collect()
+    }
+
+    /// ParentNode.firstElementChild — 参见 DOM §4.4。
+    pub fn first_element_child(&self) -> Option<Rc<RefCell<Node>>> {
+        self.children
+            .iter()
+            .find(|c| c.borrow().node_type == NodeType::Element)
+            .cloned()
+    }
+
+    /// ParentNode.lastElementChild — 参见 DOM §4.4。
+    pub fn last_element_child(&self) -> Option<Rc<RefCell<Node>>> {
+        self.children
+            .iter()
+            .rev()
+            .find(|c| c.borrow().node_type == NodeType::Element)
+            .cloned()
+    }
+
+    /// ParentNode.childElementCount — 参见 DOM §4.4。
+    pub fn child_element_count(&self) -> usize {
+        self.children
+            .iter()
+            .filter(|c| c.borrow().node_type == NodeType::Element)
+            .count()
+    }
+
     /// 返回节点所属的 Document（`node.ownerDocument`）。
     /// Document 节点返回自身。
     pub fn owner_document(&self) -> Option<Rc<RefCell<Node>>> {

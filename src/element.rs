@@ -92,4 +92,39 @@ impl ElementData {
     pub fn set_template_content(&mut self, content: Rc<RefCell<Node>>) {
         self.template_content = Some(content);
     }
+
+    /// `Element.setAttribute(name, value)` — 参见 DOM §6.4。
+    ///
+    /// 若 `name` 对应的属性已存在则更新其值；否则追加新属性。
+    /// HTML namespace 下 name 大小写不敏感。
+    pub fn set_attribute(&mut self, name: &str, value: &str) {
+        let cmp: fn(&Attribute, &str) -> bool = match self.namespace {
+            Namespace::Html => |a, n| a.local_name.eq_ignore_ascii_case(n),
+            _ => |a, n| a.local_name == n,
+        };
+        if let Some(attr) = self.attributes.iter_mut().find(|a| cmp(a, name)) {
+            attr.value = value.to_string();
+        } else {
+            self.attributes.push(Attribute::new(name, value));
+        }
+    }
+
+    /// `Element.removeAttribute(name)` — 参见 DOM §6.4。
+    pub fn remove_attribute(&mut self, name: &str) {
+        let idx = match self.namespace {
+            Namespace::Html => self
+                .attributes
+                .iter()
+                .position(|a| a.local_name.eq_ignore_ascii_case(name)),
+            _ => self.attributes.iter().position(|a| a.local_name == name),
+        };
+        if let Some(i) = idx {
+            self.attributes.remove(i);
+        }
+    }
+
+    /// `Element.hasAttribute(name)` — 参见 DOM §6.4。
+    pub fn has_attribute(&self, name: &str) -> bool {
+        self.get_attribute(name).is_some()
+    }
 }
