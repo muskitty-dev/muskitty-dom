@@ -14,6 +14,7 @@ use crate::document::DocumentData;
 use crate::document_fragment::DocumentFragmentData;
 use crate::document_type::DocumentTypeData;
 use crate::element::ElementData;
+use crate::event::EventListenerEntry;
 use crate::processing_instruction::ProcessingInstructionData;
 use crate::text::TextData;
 
@@ -142,6 +143,10 @@ pub struct Node {
     /// 子节点列表（按文档顺序）。`pub(crate)` 限制外部 crate 访问；
     /// 内部 `tree` 模块的函数是唯一应直接修改 `children` 的地方。
     pub(crate) children: Vec<Rc<RefCell<Node>>>,
+    /// 事件监听器列表（DOM §4.4/4.5）。`pub(crate)`：外部通过 `event`
+    /// 模块的 `add_event_listener` / `remove_event_listener` 修改。
+    /// 浅克隆（cloneNode deep=false）不复制监听器，符合 §4.4 语义。
+    pub(crate) event_listeners: Vec<EventListenerEntry>,
 }
 
 impl std::fmt::Debug for Node {
@@ -164,6 +169,7 @@ impl Node {
             owner_document: Weak::new(),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::Document(DocumentData::new()),
         }));
         // Document 的 owner_document 指向自身
@@ -184,6 +190,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::Element(element),
         }))
     }
@@ -203,6 +210,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::Element(element),
         }))
     }
@@ -215,6 +223,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::Text(TextData::new(data)),
         }))
     }
@@ -227,6 +236,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::Comment(CommentData::new(data)),
         }))
     }
@@ -244,6 +254,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::DocumentType(DocumentTypeData::new(name, public_id, system_id)),
         }))
     }
@@ -256,6 +267,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::DocumentFragment(DocumentFragmentData),
         }))
     }
@@ -273,6 +285,7 @@ impl Node {
             owner_document: Rc::downgrade(owner_document),
             parent_node: Weak::new(),
             children: Vec::new(),
+            event_listeners: Vec::new(),
             kind: NodeKind::ProcessingInstruction(ProcessingInstructionData::new(target, data)),
         }))
     }

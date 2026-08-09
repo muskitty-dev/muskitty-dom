@@ -9,6 +9,7 @@
 //!   [`document_fragment`]：各节点类型的数据载体
 //! - [`attribute`]：`Attribute`、`Namespace`
 //! - [`tree`]：树修改算法（`append_child` / `insert_before` / `remove_child` / `replace_child`）
+//! - [`event`]：事件模型（`Event`、`add_event_listener` / `dispatch_event`）
 //! - [`error`]：`DomError`
 //!
 //! # 参考
@@ -22,6 +23,7 @@ pub mod document_fragment;
 pub mod document_type;
 pub mod element;
 pub mod error;
+pub mod event;
 pub mod node;
 pub mod processing_instruction;
 pub mod text;
@@ -34,6 +36,10 @@ pub use document_fragment::DocumentFragmentData;
 pub use document_type::DocumentTypeData;
 pub use element::ElementData;
 pub use error::DomError;
+pub use event::{
+    add_event_listener, dispatch_event, remove_event_listener, Event, EventCallback,
+    EventListenerOptions, EventPhase,
+};
 pub use node::{Descendants, Node, NodeKind, NodeType};
 pub use processing_instruction::ProcessingInstructionData;
 pub use text::TextData;
