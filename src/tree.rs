@@ -16,7 +16,9 @@ use crate::node::{Node, NodeKind, NodeType};
 /// 清空所有子节点；若 `value` 非空，则创建一个 Text 节点作为唯一子节点。
 pub fn set_text_content(node: &Rc<RefCell<Node>>, value: &str) {
     // 清空所有子节点（解除它们的 parent 引用）
-    let children: Vec<Rc<RefCell<Node>>> = node.borrow_mut().children.drain(..).collect();
+    // mem::take 拿走 Vec 留空容器，等价 drain(..).collect() 且零分配
+    // （clippy::drain_collect，rust 1.98）。
+    let children: Vec<Rc<RefCell<Node>>> = std::mem::take(&mut node.borrow_mut().children);
     for c in children {
         c.borrow_mut().parent_node = Weak::new();
     }
@@ -62,8 +64,8 @@ pub fn insert_before(
     let is_fragment = node.borrow().node_type == NodeType::DocumentFragment;
     if is_fragment {
         let fragment_children: Vec<Rc<RefCell<Node>>> =
-            node.borrow_mut().children.drain(..).collect();
-        // RefMut 在 drain().collect() 后已释放；安全递归插入子节点。
+            std::mem::take(&mut node.borrow_mut().children);
+        // RefMut 在 mem::take 语句后已释放；安全递归插入子节点。
         for child in fragment_children {
             insert_before(parent, child, reference)?;
         }
@@ -273,7 +275,7 @@ pub fn push_child_raw(parent: &Rc<RefCell<Node>>, child: Rc<RefCell<Node>>) {
 /// 清空所有子节点并返回旧列表。调用方负责处理旧子节点的
 /// `parent_node` 引用。
 pub fn drain_children(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
-    node.borrow_mut().children.drain(..).collect()
+    std::mem::take(&mut node.borrow_mut().children)
 }
 
 /// 按谓词保留子节点。不匹配的子节点直接丢弃（其 `parent_node` 未更新）。
