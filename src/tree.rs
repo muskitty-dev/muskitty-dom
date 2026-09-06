@@ -112,24 +112,39 @@ pub fn remove_child(
 }
 
 /// `Node.replaceChild(new, old)`。参见 DOM §4.2.6.
+///
+/// 审计 D-1：`idx` 曾在移除 `new_child` **之前**计算——若 `new_child`
+/// 的父就是本 `parent`（new 是 old 的兄弟），`remove_child_internal`
+/// 移除 new 后 children 位移，陈旧 `idx` 导致：
+/// `[A,B,C]` + `replaceChild(A, C)` → `children[2]` 越界 panic；
+/// `[A,B,C]` + `replaceChild(A, B)` → 错误替换 C（静默树损坏）。
+/// 现改为移除后**重新定位** old_child；`new == old` 按 no-op 早退
+/// （返回 old，主流引擎一致语义）。
 pub fn replace_child(
     parent: &Rc<RefCell<Node>>,
     new_child: Rc<RefCell<Node>>,
     old_child: &Rc<RefCell<Node>>,
 ) -> Result<Rc<RefCell<Node>>, DomError> {
+    // new == old：no-op，返回 old（替换自身）。
+    if Rc::ptr_eq(&new_child, old_child) {
+        return Ok(old_child.clone());
+    }
+
+    // 若 new_child 已有父节点，先从原父移除。
+    // 分离 borrow 到独立语句，确保 Ref 在 remove_child_internal 的 borrow_mut 前释放
+    let old_parent = new_child.borrow().parent_node.upgrade();
+    if let Some(old_parent) = old_parent {
+        remove_child_internal(&old_parent, &new_child);
+    }
+
+    // D-1：移除 new 后重新定位 old——old 必仍在（new ≠ old 且 old 未被
+    // 上述移除触及；remove 只删 new）。找不到即旧语义 NotFound。
     let idx = parent
         .borrow()
         .children
         .iter()
         .position(|c| Rc::ptr_eq(c, old_child))
         .ok_or_else(|| DomError::NotFound("old_child is not a child of parent".into()))?;
-
-    // 若 new_child 已有父节点，先从原父移除
-    // 分离 borrow 到独立语句，确保 Ref 在 remove_child_internal 的 borrow_mut 前释放
-    let old_parent = new_child.borrow().parent_node.upgrade();
-    if let Some(old_parent) = old_parent {
-        remove_child_internal(&old_parent, &new_child);
-    }
 
     // 替换
     let old = parent.borrow_mut().children[idx].clone();

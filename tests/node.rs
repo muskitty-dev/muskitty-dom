@@ -296,6 +296,90 @@ fn replace_child_not_found_errors() {
     assert!(matches!(result, Err(DomError::NotFound(_))));
 }
 
+/// D-1：new 是 old 的**前**兄弟（同父）——修复前移除 new 后 children
+/// 位移，陈旧 idx 越界 panic（`[A,B,C]` + `replaceChild(A, C)`）。
+#[test]
+fn replace_child_sibling_before_old_no_panic() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("p", vec![], &doc);
+    let a = Node::new_element_html("a", vec![], &doc);
+    let b = Node::new_element_html("b", vec![], &doc);
+    let c = Node::new_element_html("c", vec![], &doc);
+    append_child(&parent, a.clone()).unwrap();
+    append_child(&parent, b.clone()).unwrap();
+    append_child(&parent, c.clone()).unwrap();
+
+    // replaceChild(A, C)：A（new）在 C（old）之前。修复前
+    // children[2] 越界 panic；修复后正确替换 C。
+    let returned = replace_child(&parent, a.clone(), &c).unwrap();
+    assert!(Rc::ptr_eq(&returned, &c));
+    let names: Vec<String> = parent
+        .borrow()
+        .child_nodes()
+        .iter()
+        .map(|ch| {
+            ch.borrow()
+                .kind
+                .as_element()
+                .map(|e| e.local_name.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(names, vec!["b", "a"], "A must replace C in place");
+    // C 的 parent 已清空；A 仍在（新位置），parent 不变。
+    assert!(c.borrow().parent_node().is_none());
+    assert!(Rc::ptr_eq(&a.borrow().parent_node().unwrap(), &parent));
+}
+
+/// D-1：new 是 old 的**后**兄弟——修复前 remove new 后用陈旧 idx 替换，
+/// 结果与正确语义恰好一致但依赖巧合；本测试锁定正确语义：
+/// `[A,B,C]` + `replaceChild(C, B)` → `[A,C]`，B 被摘除。
+#[test]
+fn replace_child_sibling_after_old_correct_target() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("p", vec![], &doc);
+    let a = Node::new_element_html("a", vec![], &doc);
+    let b = Node::new_element_html("b", vec![], &doc);
+    let c = Node::new_element_html("c", vec![], &doc);
+    append_child(&parent, a.clone()).unwrap();
+    append_child(&parent, b.clone()).unwrap();
+    append_child(&parent, c.clone()).unwrap();
+
+    let returned = replace_child(&parent, c.clone(), &b).unwrap();
+    assert!(Rc::ptr_eq(&returned, &b));
+    let names: Vec<String> = parent
+        .borrow()
+        .child_nodes()
+        .iter()
+        .map(|ch| {
+            ch.borrow()
+                .kind
+                .as_element()
+                .map(|e| e.local_name.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(names, vec!["a", "c"]);
+    assert!(b.borrow().parent_node().is_none());
+    assert!(Rc::ptr_eq(&c.borrow().parent_node().unwrap(), &parent));
+}
+
+/// D-1：`new == old` —— no-op，返回 old，树不变。
+#[test]
+fn replace_child_same_node_is_noop() {
+    let doc = Node::new_document();
+    let parent = Node::new_element_html("p", vec![], &doc);
+    let a = Node::new_element_html("a", vec![], &doc);
+    let b = Node::new_element_html("b", vec![], &doc);
+    append_child(&parent, a.clone()).unwrap();
+    append_child(&parent, b.clone()).unwrap();
+
+    let returned = replace_child(&parent, a.clone(), &a).unwrap();
+    assert!(Rc::ptr_eq(&returned, &a));
+    assert_eq!(parent.borrow().child_count(), 2);
+    assert!(Rc::ptr_eq(&a.borrow().parent_node().unwrap(), &parent));
+}
+
 // —— 节点移动 ——
 
 #[test]
